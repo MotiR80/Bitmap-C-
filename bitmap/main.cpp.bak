@@ -1,0 +1,762 @@
+// Created by Morteza Rashidkhan ---ID---> 810899055
+
+// chand ta voroodi be onvan test dakhel tabe main zadam vali esm file ha bayad avaz shan.
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+using namespace std;
+
+
+typedef unsigned int uint;
+
+const uint BYTES_PER_PIXEL = 3; /// red, green, & blue
+const uint FILE_HEADER_SIZE = 14;
+const uint INFO_HEADER_SIZE = 40;
+
+
+struct Color
+{
+    unsigned char RGB[BYTES_PER_PIXEL];
+};
+
+class Image {
+public:
+    Image():height{0},width{0}{}
+    void open(char* imgFileName);
+    void save(char* imageFileName);
+    void rotate_90();
+    void rotate_180();
+    void rotate_270();
+    void mirror_horizontal();
+    void mirror_vertical();
+    void rescale(uint tmp_Height, uint tmp_Width);
+    void crop(uint x1, uint x2, uint y1, uint y2);
+    void stick_horizontal(Image & image2);
+    void stick_vertical(Image & image2);
+    void stick_hor_fixed(Image image2);
+    void stick_ver_fixed(Image image2);
+    void overlap(Image & image2, uint start_x, uint start_y);
+    void Error(uint error_code);
+
+private:
+    uint width, height;
+    vector<vector<Color>> colors;
+
+    unsigned char* createBitmapFileHeader(uint stride) const;
+    unsigned char* createBitmapInfoHeader();
+};
+
+
+
+void Image:: open(char* imgFileName)
+{
+    ifstream fin(imgFileName, ios::binary);
+
+    unsigned char fileHeader[FILE_HEADER_SIZE];
+    fin.read(reinterpret_cast<char*>(fileHeader), FILE_HEADER_SIZE);
+
+    if (fileHeader[0] != 'B' || fileHeader[1] != 'M')
+    {
+        //cout << "This object is not a bitmap image." << endl;
+        fin.close();
+        Error(4);
+    }
+    else {
+        unsigned char infoHeader[INFO_HEADER_SIZE];
+        fin.read(reinterpret_cast<char *>(infoHeader), INFO_HEADER_SIZE);
+
+        width = infoHeader[4] + (infoHeader[5] << 8) + (infoHeader[6] << 16) + (infoHeader[7] << 24);
+        height = infoHeader[8] + (infoHeader[9] << 8) + (infoHeader[10] << 16) + (infoHeader[11] << 24);
+
+        colors.resize(height, vector<Color>(width));
+
+        uint paddingSize = (4 - (width * BYTES_PER_PIXEL) % 4) % 4;
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                unsigned char color[3];
+                fin.read(reinterpret_cast<char *>(color), 3);
+
+                colors[i][j].RGB[2] = color[2]; //red
+                colors[i][j].RGB[1] = color[1]; //green
+                colors[i][j].RGB[0] = color[0]; //blue
+            }
+
+            fin.ignore(paddingSize);
+        }
+
+        fin.close();
+
+        Error(0);
+    }
+}
+
+void Image:: save(char* imageFileName)
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else {
+        uint widthInBytes = width * BYTES_PER_PIXEL;
+
+        unsigned char padding[3] = {0, 0, 0};
+        uint paddingSize = (4 - (widthInBytes) % 4) % 4;
+
+        uint stride = (widthInBytes) + paddingSize;
+
+        ofstream fout(imageFileName, ios::binary);
+
+        unsigned char *fileHeader = createBitmapFileHeader(stride);
+        fout.write((const char *) fileHeader, FILE_HEADER_SIZE);
+
+        unsigned char *infoHeader = createBitmapInfoHeader();
+        fout.write((const char *) infoHeader, INFO_HEADER_SIZE);
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                unsigned char color[3] = {colors[i][j].RGB[0], colors[i][j].RGB[1], colors[i][j].RGB[2]};
+
+                fout.write((const char *) color, 3);
+            }
+
+            fout.write((const char *) padding, paddingSize);
+        }
+
+        fout.close();
+
+        Error(6);
+    }
+}
+
+unsigned char* Image:: createBitmapFileHeader(uint stride) const
+{
+    uint fileSize = FILE_HEADER_SIZE + INFO_HEADER_SIZE + (stride * height);
+
+    static unsigned char fileHeader[] = {
+            0,0,     /// signature
+            0,0,0,0, /// image file size in bytes
+            0,0,0,0, /// reserved
+            0,0,0,0, /// start of pixel array
+    };
+
+    fileHeader[0] = (unsigned char)('B');
+    fileHeader[1] = (unsigned char)('M');
+    fileHeader[2] = (unsigned char)(fileSize);
+    fileHeader[3] = (unsigned char)(fileSize >> 8);
+    fileHeader[4] = (unsigned char)(fileSize >> 16);
+    fileHeader[5] = (unsigned char)(fileSize >> 24);
+    fileHeader[10] = (unsigned char)(FILE_HEADER_SIZE + INFO_HEADER_SIZE);
+
+    return fileHeader;
+}
+
+unsigned char* Image:: createBitmapInfoHeader()
+{
+    static unsigned char infoHeader[] = {
+            0,0,0,0, /// header size
+            0,0,0,0, /// image width
+            0,0,0,0, /// image height
+            0,0,     /// number of color planes
+            0,0,     /// bits per pixel
+            0,0,0,0, /// compression
+            0,0,0,0, /// image size
+            0,0,0,0, /// horizontal resolution
+            0,0,0,0, /// vertical resolution
+            0,0,0,0, /// colors in color table
+            0,0,0,0, /// important color count
+    };
+
+    infoHeader[0] = (unsigned char)(INFO_HEADER_SIZE);
+    infoHeader[4] = (unsigned char)(width);
+    infoHeader[5] = (unsigned char)(width >> 8);
+    infoHeader[6] = (unsigned char)(width >> 16);
+    infoHeader[7] = (unsigned char)(width >> 24);
+    infoHeader[8] = (unsigned char)(height);
+    infoHeader[9] = (unsigned char)(height >> 8);
+    infoHeader[10] = (unsigned char)(height >> 16);
+    infoHeader[11] = (unsigned char)(height >> 24);
+    infoHeader[12] = (unsigned char)(1);
+    infoHeader[14] = (unsigned char)(BYTES_PER_PIXEL * 8);
+
+    return infoHeader;
+}
+
+void Image::rotate_90()
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+        uint tmp_width = height;
+        uint tmp_height = width;
+
+        tmp_Color.resize(tmp_height, vector<Color>(tmp_width));
+
+        for (uint i = 0; i < tmp_height; ++i) {
+            for (uint j = 0; j < tmp_width; ++j) {
+                tmp_Color[i][j] = colors[j][width - 1 - i];
+            }
+        }
+
+        width = tmp_width;
+        height = tmp_height;
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::rotate_180()
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+
+        tmp_Color.resize(height, vector<Color>(width));
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_Color[i][j] = colors[height - 1 - i][width - 1 - j];
+            }
+        }
+
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::rotate_270()
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+        uint tmp_width = height;
+        uint tmp_height = width;
+
+        tmp_Color.resize(tmp_height, vector<Color>(tmp_width));
+
+        for (uint i = 0; i < tmp_height; ++i) {
+            for (uint j = 0; j < tmp_width; ++j) {
+                tmp_Color[i][j] = colors[height - 1 - j][i];
+            }
+        }
+
+        width = tmp_width;
+        height = tmp_height;
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::mirror_horizontal()
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+        tmp_Color.resize(height, vector<Color>(width));
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_Color[i][j] = colors[i][width - 1 - j];
+            }
+        }
+
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::mirror_vertical()
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+        tmp_Color.resize(height, vector<Color>(width));
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_Color[i][j] = colors[height - 1 - i][j];
+            }
+        }
+
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::crop(uint x1,uint x2,uint y1,uint y2)
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_color;
+
+        width = x2 - x1 + 1;
+        height = y2 - y1 + 1;
+
+        tmp_color.resize(height, vector<Color>(width));
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[y1 + i][x1 + j];
+            }
+        }
+
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::rescale(uint tmp_Height, uint tmp_Width)
+{
+    if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else
+    {
+        vector<vector<Color>> tmp_Color;
+        tmp_Color.resize(tmp_Height, vector<Color>(tmp_Width));
+
+        double fx = (double) width / tmp_Width;
+        double fy = (double) height / tmp_Height;
+
+        double fx2 = 0.99999 * fx;
+        double fy2 = 0.99999 * fy;
+
+        for (uint i = 0; i < tmp_Height; ++i) {
+            for (uint j = 0; j < tmp_Width; ++j) {
+                tmp_Color[i][j] = colors[i * fy + fy2][j * fx + fx2];
+            }
+        }
+
+        width = tmp_Width;
+        height = tmp_Height;
+        colors = tmp_Color;
+
+        Error(0);
+    }
+}
+
+void Image::stick_horizontal(Image &image2)
+{
+    if (colors.empty() && image2.colors.empty())
+    {
+        Error(3);
+        return;
+    }
+
+    else if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else if (image2.colors.empty())
+    {
+        Error(2);
+        return;
+    }
+
+    else {
+        uint tmp_width = width + image2.width;
+
+        uint tmp_height;
+        if (height >= image2.height) { tmp_height = height; }
+        else { tmp_height = image2.height; }
+
+        vector<vector<Color>> tmp_color;
+        tmp_color.resize(tmp_height, vector<Color>(tmp_width));
+
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[i][j];
+            }
+        }
+
+        for (uint i = 0; i < image2.height; ++i) {
+            for (uint j = 0; j < image2.width; ++j) {
+                tmp_color[i][j + width] = image2.colors[i][j];
+            }
+        }
+
+        width = tmp_width;
+        height = tmp_height;
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::stick_vertical(Image &image2)
+{
+    if (colors.empty() && image2.colors.empty())
+    {
+        Error(3);
+        return;
+    }
+
+    else if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else if (image2.colors.empty())
+    {
+        Error(2);
+        return;
+    }
+
+    else {
+        uint tmp_height = height + image2.height;
+
+        uint tmp_width;
+        if (width >= image2.width) { tmp_width = width; }
+        else { tmp_width = image2.width; }
+
+        vector<vector<Color>> tmp_color;
+        tmp_color.resize(tmp_height, vector<Color>(tmp_width));
+
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[i][j];
+            }
+        }
+
+        for (uint i = 0; i < image2.height; ++i) {
+            for (uint j = 0; j < image2.width; ++j) {
+                tmp_color[i + height][j] = image2.colors[i][j];
+            }
+        }
+
+        width = tmp_width;
+        height = tmp_height;
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::overlap(Image &image2, uint start_x, uint start_y)
+{
+    if (colors.empty() && image2.colors.empty())
+    {
+        Error(3);
+        return;
+    }
+
+    else if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else if (image2.colors.empty())
+    {
+        Error(2);
+        return;
+    }
+
+    else if((start_x < 0 || start_x > width - 1) || (start_y < 0 || start_y > height))
+    {
+        Error(5);
+        return;
+    }
+
+    else {
+        uint tmp_width;
+        uint tmp_height;
+
+        uint end_x = start_x + image2.width;
+        uint end_y = start_y + image2.height;
+
+        if (end_x >= (width - 1)) { tmp_width = end_x + 1; }
+        else { tmp_width = width; }
+
+        if (end_y >= (height - 1)) { tmp_height = end_y + 1; }
+        else { tmp_height = height; }
+
+        vector<vector<Color>> tmp_color;
+        tmp_color.resize(tmp_height, vector<Color>(tmp_width));
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[i][j];
+            }
+        }
+
+        for (uint i = 0; i < image2.height; ++i) {
+            for (uint j = 0; j < image2.width; ++j) {
+                tmp_color[i + start_y][j + start_x] = image2.colors[i][j];
+            }
+        }
+
+        width = tmp_width;
+        height = tmp_height;
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::stick_hor_fixed(Image image2)
+{
+    if (colors.empty() && image2.colors.empty())
+    {
+        Error(3);
+        return;
+    }
+
+    else if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else if (image2.colors.empty())
+    {
+        Error(2);
+        return;
+    }
+
+    else {
+        image2.rescale(height, width);
+
+        uint tmp_width = 2 * width;
+
+        vector<vector<Color>> tmp_color;
+        tmp_color.resize(height, vector<Color>(tmp_width));  // height is constant
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[i][j];
+
+                tmp_color[i][j + width] = image2.colors[i][j];
+            }
+        }
+
+        width = tmp_width;
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::stick_ver_fixed(Image image2)
+{
+    if (colors.empty() && image2.colors.empty())
+    {
+        Error(3);
+        return;
+    }
+
+    else if (colors.empty())
+    {
+        Error(1);
+        return;
+    }
+
+    else if (image2.colors.empty())
+    {
+        Error(2);
+        return;
+    }
+
+    else {
+        image2.rescale(height, width);
+
+        unsigned int tmp_height = 2 * height;
+
+        vector<vector<Color>> tmp_color;
+        tmp_color.resize(tmp_height, vector<Color>(width));  // width is constant
+
+        for (uint i = 0; i < height; ++i) {
+            for (uint j = 0; j < width; ++j) {
+                tmp_color[i][j] = colors[i][j];
+                tmp_color[i + height][j] = image2.colors[i][j];
+            }
+        }
+
+        height = tmp_height;
+        colors = tmp_color;
+
+        Error(0);
+    }
+}
+
+void Image::Error(uint error_code)
+{
+    enum errors{successful, nload_img1, nload_img2, nload_both_img, not_bmp, out_Range, create_img};
+
+    switch (error_code)
+    {
+        case successful:
+        {
+            cout << "Succesful" << endl;
+            break;
+        }
+
+        case nload_img1:
+        {
+            cout << "First image not loaded." << endl;
+            break;
+        }
+
+        case nload_img2:
+        {
+            cout << "Second image not loaded." << endl;
+            break;
+        }
+
+        case nload_both_img:
+        {
+            cout << "First and second images not loaded." << endl;
+            break;
+        }
+
+        case not_bmp:
+        {
+            cout << "This file is not a bmp image." << endl;
+            break;
+        }
+
+        case out_Range:
+        {
+            cout << "The second image is out of range of the first image." << endl;
+            break;
+        }
+
+        case create_img:
+        {
+            cout << "Image created successfully." << endl;
+            break;
+        }
+    }
+}
+
+
+
+
+int main()
+{
+    Image a;
+    a.open("image1.bmp");
+    a.rotate_90();
+    a.save("rotate90.bmp");
+
+    Image b;
+    b.open("image1.bmp");
+    b.rotate_180();
+    b.save("rotate180.bmp");
+
+    Image c;
+    c.open("image1.bmp");
+    c.rotate_270();
+    c.save("rotate270.bmp");
+
+    Image d;
+    d.open("image1.bmp");
+    d.mirror_horizontal();
+    d.save("mirror_horizontal.bmp");
+
+    Image e;
+    e.open("image1.bmp");
+    e.mirror_vertical();
+    e.save("mirror_vertical.bmp");
+
+    Image f;
+    f.open("image1.bmp");
+    f.crop(100,100,100,100);
+    f.save("crop.bmp");
+
+    Image g;
+    g.open("image1.bmp");
+    g.rescale(500,500);
+    g.save("rescale.bmp");
+
+    Image h;
+    h.open("image1.bmp");
+    Image i;
+    i.open("image2.bmp");
+    h.stick_horizontal(i);
+    h.save("stick_horizontal.bmp");
+
+    Image j;
+    j.open("image1.bmp");
+    Image k;
+    k.open("image2.bmp");
+    j.stick_vertical(k);
+    j.save("stick_vertical.bmp");
+
+    Image l;
+    l.open("image1.bmp");
+    Image m;
+    m.open("image2.bmp");
+    l.overlap(m, 200, 200);
+    l.save("overlap.bmp");
+
+    Image n;
+    n.open("image1.bmp");
+    Image o;
+    o.open("image2.bmp");
+    n.stick_ver_fixed(o);
+    n.save("stick_ver_fixed.bmp");
+
+    //error
+    Image p;
+    Image q;
+    q.open("image2.bmp");
+    p.stick_horizontal(i);
+    p.save("stick_horizontal.bmp");
+
+}
+
